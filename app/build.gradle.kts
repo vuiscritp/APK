@@ -22,6 +22,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Signed with the debug keystore so the APK can actually be installed
+            // (previously unsigned -> "package appears invalid" on install).
+            // For Play Store distribution, replace with a real release keystore later.
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
