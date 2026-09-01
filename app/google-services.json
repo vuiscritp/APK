@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "734793539422",
+    "firebase_url": "https://ai-api-project-1-default-rtdb.firebaseio.com",
+    "project_id": "ai-api-project-1",
+    "storage_bucket": "ai-api-project-1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:734793539422:android:6c441cb1e946d62d4b79cf",
+        "android_client_info": {
+          "package_name": "com.aidev.assistant"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBf_BNNqn4vYbThriznLjehDyG3Lc2NgiA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
