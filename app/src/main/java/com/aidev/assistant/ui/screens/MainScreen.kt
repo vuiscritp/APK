@@ -38,7 +38,7 @@ import com.aidev.assistant.data.AvailableModels
 import com.aidev.assistant.data.ChatMessage
 import com.aidev.assistant.data.ChatSession
 import com.aidev.assistant.data.FirebaseRepository
-import com.aidev.assistant.data.ModelChecker
+import com.aidev.assistant.data.ModelRepository
 import com.aidev.assistant.data.AIModel
 import com.aidev.assistant.ui.components.MessageBubble
 import kotlinx.coroutines.flow.first
@@ -83,18 +83,23 @@ fun MainScreen() {
         }
     }
 
-    // Verify each model against the provider's live catalog once, on first open.
-    // Catches a decommissioned model (e.g. Groq retiring llama-3.3-70b-versatile)
-    // before the user hits a 404 mid-chat.
+    // Scan the FULL live model catalog from every provider once, on first open,
+    // instead of only checking a hand-picked list. A decommissioned model
+    // (e.g. Groq retiring llama-3.3-70b-versatile) simply won't appear at all.
+    var modelsLoading by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
-        val checked = ModelChecker.verify(AvailableModels.list)
-        models = checked
-        val currentStillValid = checked.firstOrNull { it.id == selectedModel.id }?.available ?: true
-        if (!currentStillValid) {
-            val fallback = checked.firstOrNull { it.available } ?: checked.first()
-            selectedModel = fallback
-            scope.launch {
-                snackbarHostState.showSnackbar("${selectedModel.name} không khả dụng, đã chuyển sang ${fallback.name}")
+        val fetched = ModelRepository.fetchAll()
+        modelsLoading = false
+        if (fetched.isNotEmpty()) {
+            models = fetched
+            val stillValid = fetched.any { it.id == selectedModel.id }
+            if (!stillValid) {
+                val preferredDefault = fetched.firstOrNull { it.id.startsWith("groq:") }
+                    ?: fetched.first()
+                selectedModel = preferredDefault
+                scope.launch {
+                    snackbarHostState.showSnackbar("Đã tải ${fetched.size} model, đang dùng ${preferredDefault.name}")
+                }
             }
         }
     }
@@ -296,6 +301,7 @@ fun MainScreen() {
         ModelPickerSheet(
             models = models,
             selectedModel = selectedModel,
+            isLoading = modelsLoading,
             onSelect = {
                 selectedModel = it
                 showModelPicker = false
@@ -324,56 +330,95 @@ fun MainScreen() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModelPickerSheet(
     models: List<AIModel>,
     selectedModel: AIModel,
+    isLoading: Boolean,
     onSelect: (AIModel) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(models, query) {
+        if (query.isBlank()) models
+        else models.filter {
+            it.name.contains(query, ignoreCase = true) ||
+                it.provider.contains(query, ignoreCase = true) ||
+                it.apiModelId.contains(query, ignoreCase = true)
+        }
+    }
+    val grouped = remember(filtered) { filtered.groupBy { it.provider } }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Chọn Model", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(12.dp))
-            models.forEach { model ->
-                ListItem(
-                    headlineContent = { Text(model.name) },
-                    supportingContent = {
-                        Text(
-                            if (model.available) "${model.provider} · ${model.description}"
-                            else "${model.provider} · Không khả dụng"
-                        )
-                    },
-                    leadingContent = {
-                        Icon(
-                            Icons.Default.Memory,
-                            contentDescription = null,
-                            tint = if (model.available) LocalContentColor.current
-                            else MaterialTheme.colorScheme.error
-                        )
-                    },
-                    trailingContent = {
-                        if (!model.available) {
-                            Icon(
-                                Icons.Default.ErrorOutline,
-                                contentDescription = "Unavailable",
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable(enabled = model.available) { onSelect(model) },
-                    colors = ListItemDefaults.colors(
-                        containerColor = if (model.id == selectedModel.id)
-                            MaterialTheme.colorScheme.primaryContainer
-                        else Color.Transparent
-                    )
+        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Chọn Model", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "${models.size} model",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Spacer(Modifier.height(24.dp))
+            if (isLoading) {
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                    Text("Đang quét danh sách model từ các provider…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Tìm model theo tên hoặc provider…") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp)
+            )
+            Spacer(Modifier.height(8.dp))
+
+            LazyColumn(modifier = Modifier.height(420.dp)) {
+                grouped.forEach { (provider, providerModels) ->
+                    item(key = "header-$provider") {
+                        Text(
+                            provider,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
+                        )
+                    }
+                    items(providerModels, key = { it.id }) { model ->
+                        ListItem(
+                            headlineContent = { Text(model.name) },
+                            supportingContent = { Text(model.apiModelId, maxLines = 1) },
+                            leadingContent = { Icon(Icons.Default.Memory, contentDescription = null) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { onSelect(model) },
+                            colors = ListItemDefaults.colors(
+                                containerColor = if (model.id == selectedModel.id)
+                                    MaterialTheme.colorScheme.primaryContainer
+                                else Color.Transparent
+                            )
+                        )
+                    }
+                }
+                if (filtered.isEmpty()) {
+                    item {
+                        Text(
+                            "Không tìm thấy model phù hợp",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 24.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

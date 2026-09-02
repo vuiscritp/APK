@@ -23,7 +23,7 @@ data class AIModel(
     val provider: String,
     val description: String,
     val apiModelId: String,       // exact model identifier sent to the provider's API
-    val available: Boolean = true // updated at runtime by ModelChecker after a live /models check
+    val available: Boolean = true // kept for compatibility; models from ModelRepository are already live-verified
 )
 
 object AvailableModels {
