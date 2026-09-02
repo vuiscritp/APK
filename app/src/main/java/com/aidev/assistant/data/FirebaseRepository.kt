@@ -69,4 +69,9 @@ class FirebaseRepository {
         sessionsRef.child(sessionId).removeValue().await()
         messagesRef.child(sessionId).removeValue().await()
     }
+
+    /** Clears all messages in a session but keeps the session itself (used by the "clear chat" action). */
+    suspend fun clearMessages(sessionId: String) {
+        messagesRef.child(sessionId).removeValue().await()
+    }
 }

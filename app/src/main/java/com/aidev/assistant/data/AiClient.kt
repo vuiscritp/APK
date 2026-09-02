@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Calls the real provider APIs (Groq / Gemini / OpenRouter / Cloudflare Workers AI)
- * using keys from SecretVault. Replaces the old generateMockReply() placeholder.
+ * using keys from SecretVault.
  */
 object AiClient {
 
@@ -26,22 +26,22 @@ object AiClient {
 
     suspend fun generateReply(model: AIModel, prompt: String): String = withContext(Dispatchers.IO) {
         try {
-            when (model.id) {
-                "groq-llama" -> openAiCompatible(
+            when (model.provider) {
+                "Groq" -> openAiCompatible(
                     service = "groq",
                     url = "https://api.groq.com/openai/v1/chat/completions",
-                    apiModel = "llama-3.3-70b-versatile",
+                    apiModel = model.apiModelId,
                     prompt = prompt
                 )
-                "gemini-flash" -> gemini(prompt)
-                "openrouter-auto" -> openAiCompatible(
+                "Google" -> gemini(model.apiModelId, prompt)
+                "OpenRouter" -> openAiCompatible(
                     service = "openrouter",
                     url = "https://openrouter.ai/api/v1/chat/completions",
-                    apiModel = "openrouter/auto",
+                    apiModel = model.apiModelId,
                     prompt = prompt
                 )
-                "cf-llama" -> cloudflare(prompt)
-                else -> "⚠️ Unknown model: ${model.id}"
+                "Cloudflare" -> cloudflare(model.apiModelId, prompt)
+                else -> "⚠️ Unknown provider: ${model.provider}"
             }
         } catch (e: Exception) {
             "⚠️ ${model.name} request failed: ${e.message ?: e.javaClass.simpleName}"
@@ -85,11 +85,11 @@ object AiClient {
     }
 
     // ---- Gemini (Google Generative Language API) ----
-    private fun gemini(prompt: String): String {
+    private fun gemini(apiModelId: String, prompt: String): String {
         val apiKey = SecretVault.randomKey("gemini")
             ?: return "⚠️ No Gemini API key configured."
 
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey"
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/$apiModelId:generateContent?key=$apiKey"
 
         val body = JSONObject().apply {
             put("contents", JSONArray().put(
@@ -124,14 +124,14 @@ object AiClient {
     }
 
     // ---- Cloudflare Workers AI (key format stored as "token:accountId") ----
-    private fun cloudflare(prompt: String): String {
+    private fun cloudflare(apiModelId: String, prompt: String): String {
         val raw = SecretVault.randomKey("cloudflare")
             ?: return "⚠️ No Cloudflare API key configured."
         val parts = raw.split(":", limit = 2)
         if (parts.size != 2) return "⚠️ Malformed Cloudflare key."
         val (token, accountId) = parts
 
-        val url = "https://api.cloudflare.com/client/v4/accounts/$accountId/ai/run/@cf/meta/llama-3.1-8b-instruct"
+        val url = "https://api.cloudflare.com/client/v4/accounts/$accountId/ai/run/$apiModelId"
 
         val body = JSONObject().apply {
             put("messages", JSONArray().put(
